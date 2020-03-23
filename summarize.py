@@ -1,6 +1,5 @@
 # This program utilizes the basics of the nltk (NLP) library to create a text summarizer which outputs a summary for a given text
 
-from __future__ import print_function
 import array
 import string
 import operator
@@ -10,11 +9,8 @@ import nltk
 from nltk.tokenize import sent_tokenize, word_tokenize
 from nltk.corpus import stopwords
 from nltk.probability import FreqDist
-from flask import Flask, render_template, request #Used to render .html templates
-
-#Webscrapping using BeautifulSoup, not yet implemented
-import bs4 as bs #beautifulsource4
-from urllib.request import urlopen
+from flask import Flask, request, jsonify, abort, make_response
+from rake_nltk import Rake
 
 class summarize:
 
@@ -64,8 +60,7 @@ class summarize:
 				if j in sentences_original[i]:
 					tracker[i] += word_frequency[j]
 
-		#Get the highest weighted sentence and its index from the tracker. We take those and output the associated sentences.
-		
+		#Get the highest weighted sentence and its index from the tracker. We take those and output the associated sentences.		
 		for i in range(0, len(tracker)):
 			
 			#Extract the index with the highest weighted frequency from tracker
@@ -83,7 +78,6 @@ class summarize:
 
 	# @def sort_senteces:
 	# From the output sentences, sort them such that they appear in the order the input text was provided.
-	# Makes it flow more with the theme of the story/article etc..
 	def sort_sentences (self, original, output):
 		sorted_sent_arr = []
 		sorted_output = []
@@ -97,26 +91,37 @@ class summarize:
 		print (sorted_sent_arr)
 		return sorted_output
 
+	def extract_keywords(self, input_text):
+		r = Rake()
+		r.extract_keywords_from_text(input_text)
+		return r.get_ranked_phrases_with_scores()
 
 
 #------------Flask Application---------------#
-
 app = Flask(__name__)
-@app.route('/templates', methods=['POST'])
-def original_text_form():
-	title = "Summarizer"
-	text = request.form['input_text'] #Get text from html
-	max_value = sent_tokenize(text)
-	num_sent = int(request.form['num_sentences']) #Get number of sentence required in summary
-	sum1 = summarize()
-	summary = sum1.get_summary(text, num_sent)
-	print (summary)
-	return render_template("index.html", title = title, original_text = text, output_summary = summary, num_sentences = max_value)
-@app.route('/')
-def homepage():
-	title = "Text Summarizer"
-	return render_template("index.html", title = title)
+
+@app.errorhandler(400)
+def text_not_present(error):
+	return make_response(jsonify({'error': 'Bad request'}), 400)		
 	
+@app.route('/analyze_text', methods=['POST'])
+def analyze_text():
+	if not request.json or not 'input_text' in request.json:
+		abort(400)
+
+	input_text = request.json['input_text'] #Get text from html
+	num_sent = int(request.json['num_sentences']) #Get number of sentence required in summary 
+	ranked_phrases = summarize().extract_keywords(input_text)
+	summary = summarize().get_summary(input_text, num_sent)
+	output = {
+		'original_text': input_text,
+		'output_summary': summary,
+		'ranked_phrases': ranked_phrases,
+		'num_sentences': num_sent
+	}
+	return jsonify(output), 201
+
+
 if __name__ == "__main__":
 	app.debug = True
 	app.run()
